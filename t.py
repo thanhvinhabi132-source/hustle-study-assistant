@@ -4,7 +4,7 @@ from PyPDF2 import PdfReader
 
 # --- CẤU HÌNH ---
 # 1. Dán API Key bạn vừa lấy ở Bước 2 vào đây
-MY_API_KEY = "AIzaSyAEScXRlpuG3zO3HQLGHIrVjTpVKmSgelw"  # <--- THAY BẰNG KEY CỦA BẠN
+MY_API_KEY = "AIzaSyCTO_3RRu1wczYoGMwPdskYCeti7UWLzNI"  # <--- THAY BẰNG KEY CỦA BẠN
 
 # 2. Khởi tạo Client cho Gemini
 client = genai.Client(api_key=MY_API_KEY)
