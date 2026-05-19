@@ -1,13 +1,28 @@
 import streamlit as st  # type: ignore
 from google import genai
+from pydantic import BaseModel, Field
 from PyPDF2 import PdfReader
 import json
 
-# --- CẤU HÌNH ---
-# API Key của bạn vẫn được giữ nguyên vẹn ở đây, gọi từ Streamlit Secrets
-MY_API_KEY = st.secrets["GEMINI_API_KEY"]
+# --- ĐỊNH NGHĨA CẤU TRÚC DỮ LIỆU CỨNG (STRUCTURED OUTPUTS) ---
+class TermItem(BaseModel):
+    term: str = Field(description="Thuật ngữ chuyên ngành")
+    definition: str = Field(description="Định nghĩa chi tiết của thuật ngữ")
 
-# Khởi tạo Client cho Gemini
+class QuizItem(BaseModel):
+    question: str = Field(description="Nội dung câu hỏi trắc nghiệm")
+    options: list[str] = Field(description="Danh sách gồm đúng 4 lựa chọn, ví dụ: ['A. ...', 'B. ...', 'C. ...', 'D. ...']")
+    correct: str = Field(description="Nội dung chính xác của đáp án đúng, phải khớp hoàn toàn với một phần tử trong options bao gồm cả ký tự đầu (Ví dụ: A. ...)")
+    explain: str = Field(description="Lời giải thích lý do đáp án đó đúng ngắn gọn")
+
+class StudyAnalysis(BaseModel):
+    summary: list[str] = Field(description="Danh sách các ý tóm tắt kiến thức cốt lõi nhất")
+    terms: list[TermItem] = Field(description="Danh sách gồm 3 thuật ngữ chuyên ngành khó nhất")
+    quiz: list[QuizItem] = Field(description="Danh sách gồm đúng 5 câu hỏi trắc nghiệm ôn tập")
+
+
+# --- CẤU HÌNH ---
+MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 client = genai.Client(api_key=MY_API_KEY)
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
@@ -32,9 +47,8 @@ if uploaded_file is not None:
             if text:
                 full_text += text
         
-        # TĂNG TỐC 1: Giảm lượng chữ đầu vào xuống còn 8000 ký tự (vừa đủ cho 1 bài giảng)
-        # Giúp Gemini đọc nhanh hơn, không bị quá tải
-        context_text = full_text[:8000].strip() 
+        # Cắt text hợp lý để tránh overload
+        context_text = full_text[:10000].strip() 
         
         if not context_text:
             status.update(label="Lỗi: PDF không có dữ liệu văn bản!", state="error", expanded=True)
@@ -44,58 +58,36 @@ if uploaded_file is not None:
 
     # 2. Nút bấm phân tích
     if st.button("🚀 Bắt đầu phân tích với AI"):
-        with st.spinner('Đợi chút, Gemini đang xử lý siêu tốc giúp bạn...'):
+        with st.spinner('Đợi chút, Gemini đang phân tích và tạo bộ trắc nghiệm chuẩn cấu trúc...'):
             try:
-                # Prompt yêu cầu cấu trúc rõ ràng
                 prompt_content = f"""
                 Bạn là một giáo sư tại Đại học Bách Khoa Hà Nội. 
                 Dựa trên nội dung tài liệu sau đây:
                 ---
                 {context_text}
                 ---
-                Hãy phân tích và trả về một chuỗi JSON theo đúng cấu trúc mẫu sau bằng tiếng Việt:
-                {{
-                  "summary": ["Ý tóm tắt 1", "Ý tóm tắt 2", "Ý tóm tắt 3"],
-                  "terms": [
-                     {{"term": "Thuật ngữ chuyên ngành 1", "definition": "Giải thích định nghĩa 1"}},
-                     {{"term": "Thuật ngữ chuyên ngành 2", "definition": "Giải thích định nghĩa 2"}},
-                     {{"term": "Thuật ngữ chuyên ngành 3", "definition": "Giải thích định nghĩa 3"}}
-                  ],
-                  "quiz": [
-                     {{
-                       "question": "Nội dung câu hỏi trắc nghiệm 1?",
-                       "options": ["A. Đáp án A", "B. Đáp án B", "C. Đáp án C", "D. Đáp án D"],
-                       "correct": "Nội dung câu đúng gồm cả chữ cái đầu (Ví dụ: A. Đáp án A)",
-                       "explain": "Lời giải thích ngắn gọn."
-                     }}
-                  ]
-                }}
-                Yêu cầu: Tạo đúng 5 câu hỏi trắc nghiệm trong mảng "quiz".
+                Hãy thực hiện tóm tắt các ý chính, giải thích thuật ngữ chuyên ngành khó và tạo đúng 5 câu hỏi trắc nghiệm ôn tập dựa trên tài liệu.
                 """
 
-                # TĂNG TỐC 2: Cấu hình API để tối ưu tốc độ phản hồi
+                # Gọi API với cấu hình response_schema nghiêm ngặt
                 response = client.models.generate_content(
                     model="gemini-2.5-flash", 
                     contents=prompt_content,
                     config={
-                        # Ép trả về JSON bằng tính năng hệ thống (Nhanh và chính xác nhất)
                         "response_mime_type": "application/json",
-                        # Giới hạn số ký tự trả về để AI viết ngắn gọn, tập trung vào cấu trúc
-                        "max_output_tokens": 1200, 
-                        # Giảm độ sáng tạo để AI phản hồi nhanh và ít lỗi logic hơn
-                        "temperature": 0.2, 
+                        "response_schema": StudyAnalysis,  # Ép cấu hình schema Pydantic cứng
+                        "max_output_tokens": 2000,
+                        "temperature": 0.1, 
                     }
                 )
 
-                # Kiểm tra và parse chuỗi JSON từ AI
+                # Parse dữ liệu an toàn từ kết quả JSON chắc chắn chuẩn định dạng
                 parsed_json = json.loads(response.text.strip())
                 st.session_state["ai_data"] = parsed_json
                 st.success("Phân tích hoàn tất!")
 
-            except json.JSONDecodeError:
-                st.error("Lỗi hệ thống: Định dạng dữ liệu không đồng nhất. Vui lòng thử lại!")
             except Exception as e:
-                st.error(f"Có lỗi xảy ra: {e}")
+                st.error(f"Có lỗi xảy ra trong quá trình xử lý: {e}")
 
     # 3. Khu vực hiển thị kết quả trực quan
     if "ai_data" in st.session_state:
