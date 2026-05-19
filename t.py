@@ -3,8 +3,8 @@ from google import genai
 from PyPDF2 import PdfReader
 
 # --- CẤU HÌNH ---
-# 1. Dán API Key bạn vừa lấy ở Bước 2 vào đây
-MY_API_KEY = "AIzaSyAEScXRlpuG3zO3HQLGHIrVjTpVKmSgelw"  # <--- THAY BẰNG KEY CỦA BẠN
+# Gọi API Key một cách an toàn từ Secrets của Streamlit
+MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # 2. Khởi tạo Client cho Gemini
 client = genai.Client(api_key=MY_API_KEY)
