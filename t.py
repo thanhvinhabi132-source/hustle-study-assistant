@@ -2,13 +2,36 @@ import streamlit as st  # type: ignore
 from google import genai
 from PyPDF2 import PdfReader
 import json
+import numpy as np
+
+# Thêm các thư viện bổ sung cho hệ thống RAG
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 
 # --- CẤU HÌNH ---
-# Gọi API Key một cách an toàn từ Secrets của Streamlit
 MY_API_KEY = st.secrets["GEMINI_API_KEY"]
-
-# Khởi tạo Client cho Gemini
 client = genai.Client(api_key=MY_API_KEY)
+
+# Lớp tùy biến tích hợp Vector Embedding sử dụng trực tiếp API Gemini 2.5
+class GeminiEmbeddings:
+    def embed_documents(self, texts):
+        embeddings = []
+        for text in texts:
+            response = client.models.embed_content(
+                model="text-embedding-004",
+                contents=text
+            )
+            # API trả về danh sách các giá trị số (vector)
+            embeddings.append(response.embeddings[0].values)
+        return embeddings
+
+    def embed_query(self, text):
+        response = client.models.embed_content(
+            model="text-embedding-004",
+            contents=text
+        )
+        return response.embeddings[0].values
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
 st.set_page_config(page_title="HUSTle Assistant", page_icon="🎓", layout="centered")
@@ -16,39 +39,57 @@ st.set_page_config(page_title="HUSTle Assistant", page_icon="🎓", layout="cent
 st.title("🎓 HUSTle Study Assistant")
 st.markdown("""
     *Hệ thống hỗ trợ học tập thông minh dành cho sinh viên Bách Khoa.*
-    *Tải file PDF bài giảng lên để AI tóm tắt và đặt câu hỏi ôn tập.*
+    *Tải file PDF bài giảng lên để AI tóm tắt, đặt câu hỏi ôn tập và hỏi đáp siêu tốc.*
 """)
 
 # 1. Khu vực Upload file
 uploaded_file = st.file_uploader("Chọn file PDF bài giảng (Slide, giáo trình...)", type="pdf")
 
 if uploaded_file is not None:
-    with st.status("Đang xử lý dữ liệu...", expanded=True) as status:
-        st.write("Đang trích xuất văn bản từ PDF...")
-        reader = PdfReader(uploaded_file)
-        full_text = ""
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                full_text += text
-        
-        # Giới hạn độ dài để tránh lỗi quá tải (Lite version)
-        context_text = full_text[:15000].strip() 
-        
-        if not context_text:
-            status.update(label="Lỗi: PDF không có dữ liệu văn bản (có thể là file ảnh quét)!", state="error", expanded=True)
-            st.stop()
-        else:
-            status.update(label="Xử lý xong PDF!", state="complete", expanded=False)
+    # Biến trạng thái kiểm tra xem hệ thống đã nạp xong cơ sở dữ liệu chưa
+    if "vector_db" not in st.session_state:
+        with st.status("Đang xây dựng cơ sở dữ liệu RAG...", expanded=True) as status:
+            st.write("Đang trích xuất văn bản từ PDF...")
+            reader = PdfReader(uploaded_file)
+            full_text = ""
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    full_text += text + "\n"
+            
+            if not full_text.strip():
+                status.update(label="Lỗi: PDF không có dữ liệu văn bản (có thể là file ảnh quét)!", state="error", expanded=True)
+                st.stop()
+                
+            st.write("Đang cắt nhỏ tài liệu thành các phân đoạn (Chunks)...")
+            # Cắt tài liệu thành từng đoạn 1000 ký tự, gối đầu lên nhau 200 ký tự để không mất ngữ cảnh
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = text_splitter.split_text(full_text)
+            docs = [Document(page_content=chunk) for chunk in chunks]
+            
+            st.write("Đang mã hóa Vector (Embedding) và tạo cơ sở dữ liệu tìm kiếm...")
+            # Sử dụng thư viện FAISS chạy trực tiếp trong RAM của Streamlit để tìm kiếm siêu tốc
+            embeddings_model = GeminiEmbeddings()
+            vector_db = FAISS.from_documents(docs, embeddings_model)
+            
+            # Lưu cơ sở dữ liệu và dữ liệu thô vào Session State để dùng lâu dài
+            st.session_state["vector_db"] = vector_db
+            st.session_state["full_text_backup"] = full_text
+            status.update(label="Xử lý dữ liệu RAG thành công!", state="complete", expanded=False)
 
-    # 2. Nút bấm phân tích
+    # 2. Nút bấm phân tích (Tóm tắt & Tạo đề trắc nghiệm)
     if st.button("🚀 Bắt đầu phân tích với AI"):
-        with st.spinner('Đợi chút, Gemini đang "đọc" bài và soạn đề trắc nghiệm giúp bạn...'):
+        with st.spinner('Đợi chút, Gemini đang "lọc" các phần quan trọng nhất để soạn đề giúp bạn...'):
             try:
-                # Kỹ thuật ép Prompt trả về định dạng JSON cấu trúc
+                # 🛠️ ÁP DỤNG RAG: Thay vì lấy 15k từ đầu, ta dùng RAG để rút trích các đoạn chứa từ khóa cốt lõi
+                retriever = st.session_state["vector_db"].as_retriever(search_kwargs={"k": 8})
+                # Tìm các đoạn liên quan đến từ khóa học tập cốt lõi
+                relevant_docs = retriever.invoke("khái niệm định nghĩa lý thuyết trọng tâm công thức bài tập")
+                context_text = "\n---\n".join([doc.page_content for doc in relevant_docs])
+
                 prompt_content = f"""
                 Bạn là một giáo sư tại Đại học Bách Khoa Hà Nội. 
-                Dựa trên nội dung tài liệu sau đây:
+                Dựa trên nội dung tài liệu cốt lõi sau đây:
                 ---
                 {context_text}
                 ---
@@ -72,21 +113,19 @@ if uploaded_file is not None:
                 Yêu cầu bắt buộc: Tạo đúng 5 câu hỏi trắc nghiệm trong mảng "quiz".
                 """
 
-                # Gọi API Gemini (Sử dụng model 2.5-flash mới nhất và ổn định nhất)
                 response = client.models.generate_content(
                     model="gemini-2.5-flash", 
                     contents=prompt_content
                 )
 
-                # Làm sạch chuỗi phản hồi phòng trường hợp AI tự bọc tag ```json
                 clean_text = response.text.strip()
-                if clean_text.startswith("```json"):
+                if clean_text.startswith("
+```json"):
                     clean_text = clean_text[7:]
                 if clean_text.endswith("```"):
                     clean_text = clean_text[:-3]
                 clean_text = clean_text.strip()
 
-                # Kiểm tra và parse chuỗi JSON từ AI, sau đó lưu vào bộ nhớ Session State
                 parsed_json = json.loads(clean_text)
                 st.session_state["ai_data"] = parsed_json
                 st.success("Phân tích hoàn tất!")
@@ -94,9 +133,9 @@ if uploaded_file is not None:
             except json.JSONDecodeError:
                 st.error("Lỗi: AI phản hồi định dạng dữ liệu không chuẩn. Vui lòng bấm thử lại!")
             except Exception as e:
-                st.error(f"Có lỗi xảy ra: {e}")
+                st.error(f"Có lỗi xảy ra trong quá trình phân tích: {e}")
 
-    # 3. Khu vực hiển thị kết quả trực quan (Giữ lại giao diện kể cả khi trang reload)
+    # 3. Khu vực hiển thị kết quả trực quan
     if "ai_data" in st.session_state:
         data = st.session_state["ai_data"]
         st.divider()
@@ -106,9 +145,9 @@ if uploaded_file is not None:
         for point in data.get("summary", []):
             st.markdown(f"- {point}")
             
-        st.write("") # Dòng trống cho thoáng
+        st.write("") 
         
-        # Phần 2: Giải thích thuật ngữ chuyên ngành (Chia 3 cột)
+        # Phần 2: Giải thích thuật ngữ chuyên ngành (Chia cột)
         st.markdown("### 🔍 2. Thuật ngữ chuyên ngành cần lưu ý")
         terms_list = data.get("terms", [])
         if terms_list:
@@ -119,35 +158,79 @@ if uploaded_file is not None:
 
         st.write("") 
 
-        # Phần 3: Giao diện trắc nghiệm Tab tương tác sinh động
+        # Phần 3: Giao diện trắc nghiệm Tab tương tác
         st.markdown("### 🧠 3. Thử thách trắc nghiệm ôn tập")
         st.caption("Hãy chọn đáp án của bạn cho từng câu hỏi dưới đây để kiểm tra kiến thức:")
         
         quiz_list = data.get("quiz", [])
         if quiz_list:
-            # Tạo các tab tiêu đề câu hỏi: "Câu 1", "Câu 2",...
             tabs = st.tabs([f"Câu {x+1}" for x in range(len(quiz_list))])
-            
             for i, tab in enumerate(tabs):
                 with tab:
                     item = quiz_list[i]
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
-                    # Widget chọn đáp án (Mặc định chưa chọn câu nào nhờ index=None)
                     user_choice = st.radio(
                         "Chọn một đáp án đúng:",
                         options=item.get("options", []),
                         index=None,
-                        key=f"hust_quiz_q_{i}" # Key duy nhất để không bị lẫn giữa các câu
+                        key=f"hust_quiz_q_{i}"
                     )
                     
-                    # Xử lý ngay khi sinh viên bấm chọn đáp án
                     if user_choice:
                         if user_choice == item.get("correct"):
                             st.success("🎉 Xuất sắc! Bạn đã trả lời đúng.")
                         else:
                             st.error(f"❌ Chưa chính xác! Đáp án đúng là: **{item.get('correct')}**")
                         
-                        # Hộp thoại giải thích chi tiết ấn hiện gọn gàng
                         with st.expander("💡 Xem giải thích chi tiết từ Giáo sư"):
                             st.write(item.get("explain"))
+
+        # 🚀 TÍNH NĂNG MỚI: Khung hỏi đáp Q&A ứng dụng RAG nâng cao
+        st.divider()
+        st.markdown("### 💬 4. Hỏi đáp Siêu tốc về Tài liệu (RAG Q&A)")
+        st.caption("Bạn có thắc mắc gì thêm về bài học này không? Hãy đặt câu hỏi, AI sẽ tự động lục tìm đúng vị trí trong file để trả lời.")
+        
+        user_question = st.text_input("Nhập câu hỏi của bạn (Ví dụ: Định lý này áp dụng khi nào?, Công thức tính X là gì?):", key="rag_query_input")
+        
+        if user_question:
+            with st.spinner("Đang truy vấn dữ liệu và phân tích văn bản..."):
+                try:
+                    # Tra cứu trong database 4 đoạn văn bản có độ liên quan cao nhất với câu hỏi
+                    db_retriever = st.session_state["vector_db"].as_retriever(search_kwargs={"k": 4})
+                    matched_docs = db_retriever.invoke(user_question)
+                    
+                    # Ghép nội dung các đoạn tìm được để làm ngữ cảnh tham chiếu
+                    rag_context = "\n\n".join([f"[Đoạn tham khảo {idx+1}]: {d.page_content}" for idx, d in enumerate(matched_docs)])
+                    
+                    # Tạo cấu trúc câu lệnh ép AI trả lời trung thực dựa trên sách
+                    rag_prompt = f"""
+                    Bạn là giảng viên Đại học Bách Khoa Hà Nội, đang giải đáp thắc mắc cho sinh viên.
+                    Hãy trả lời câu hỏi sau đây một cách chính xác, mạch lạc dựa trên phần tài liệu tham khảo được trích xuất từ giáo trình.
+
+                    TÀI LIỆU THAM KHẢO CHÍNH XÁC:
+                    {rag_context}
+
+                    CÂU HỎI CỦA SINH VIÊN:
+                    {user_question}
+
+                    Yêu cầu: Trả lời ngắn gọn, tập trung thẳng vào câu hỏi, sử dụng ngôn từ sư phạm dễ hiểu. Nếu tài liệu tham khảo trên không chứa thông tin để trả lời, hãy báo rằng "Tài liệu được tải lên không có thông tin chi tiết về phần này" chứ không tự bịa ra thông tin.
+                    """
+                    
+                    # Gọi API xử lý siêu tốc
+                    rag_response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=rag_prompt
+                    )
+                    
+                    # Hiển thị kết quả trả lời ra giao diện
+                    st.markdown("#### 👨‍🏫 Câu trả lời từ trợ lý:")
+                    st.write(rag_response.text)
+                    
+                    # Cho phép sinh viên xem các đoạn văn bản mà AI đã trích lục từ file gốc ra
+                    with st.expander("🔍 Xem các nguồn thông tin được trích lục từ PDF"):
+                        for idx, doc in enumerate(matched_docs):
+                            st.info(f"**Nguồn {idx+1}:** {doc.page_content}")
+                            
+                except Exception as e:
+                    st.error(f"Không thể xử lý câu hỏi: {e}")
