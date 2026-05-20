@@ -1,7 +1,6 @@
 streamlit
-google-genai
+openai
 PyPDF2
 langchain-text-splitters
 langchain-community
 faiss-cpu
-sentence-transformers
