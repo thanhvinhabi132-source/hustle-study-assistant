@@ -54,7 +54,7 @@ if uploaded_file is not None:
             
             st.write("Đang mã hóa Vector (Embedding) bằng mô hình Google...")
             try:
-                # 🔥 SỬA TÊN MÔ HÌNH THÀNH ĐỊNH DẠNG ỔN ĐỊNH NHẤT ĐỂ TRÁNH LỖI 404
+                # Sử dụng tên mô hình chuẩn v1 của Google để tránh lỗi 404
                 embeddings_model = GoogleGenerativeAIEmbeddings(
                     model="models/embedding-001", 
                     google_api_key=MY_API_KEY
@@ -166,4 +166,58 @@ if uploaded_file is not None:
                     item = quiz_list[i]
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
-                    user_choice = st.radio(
+                    # ĐÃ SỬA: Viết gọn lại hàm radio trên các dòng rõ ràng, tránh tuyệt đối lỗi thiếu dấu ngoặc đóng
+                    opts = item.get("options", [])
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_key_{i}")
+                    
+                    if user_choice:
+                        if user_choice == item.get("correct"):
+                            st.success("🎉 Xuất sắc! Bạn đã trả lời đúng.")
+                        else:
+                            st.error(f"❌ Chưa chính xác! Đáp án đúng là: **{item.get('correct')}**")
+                        
+                        with st.expander("💡 Xem giải thích chi tiết từ Giáo sư"):
+                            st.write(item.get("explain"))
+
+        # Khung hỏi đáp Q&A ứng dụng RAG nâng cao
+        st.divider()
+        st.markdown("### 💬 4. Hỏi đáp Siêu tốc về Tài liệu (RAG Q&A)")
+        st.caption("Bạn có thắc mắc gì thêm về bài học này không? Hãy đặt câu hỏi, AI sẽ tự động lục tìm đúng vị trí trong file để trả lời.")
+        
+        user_question = st.text_input("Nhập câu hỏi của bạn (Ví dụ: Định lý này áp dụng khi nào?, Công thức tính X là gì?):", key="rag_query_input")
+        
+        if user_question:
+            with st.spinner("Đang truy vấn dữ liệu và phân tích văn bản..."):
+                try:
+                    db_retriever = st.session_state["vector_db"].as_retriever(search_kwargs={"k": 4})
+                    matched_docs = db_retriever.invoke(user_question)
+                    
+                    rag_context = "\n\n".join([f"[Đoạn tham khảo {idx+1}]: {d.page_content}" for idx, d in enumerate(matched_docs)])
+                    
+                    rag_prompt = f"""
+                    Bạn là giảng viên Đại học Bách Khoa Hà Nội, đang giải đáp thắc mắc cho sinh viên.
+                    Hãy trả lời câu hỏi sau đây một cách chính xác, mạch lạc dựa trên phần tài liệu tham khảo được trích xuất từ giáo trình.
+
+                    TÀI LIỆU THAM KHẢO CHÍNH XÁC:
+                    {rag_context}
+
+                    CÂU HỎI CỦA SINH VIÊN:
+                    {user_question}
+
+                    Yêu cầu: Trả lời ngắn gọn, tập trung thẳng vào câu hỏi, sử dụng ngôn từ sư phạm dễ hiểu. Nếu tài liệu tham khảo trên không chứa thông tin để trả lời, hãy báo rằng "Tài liệu được tải lên không có thông tin chi tiết về phần này" chứ không tự bịa ra thông tin.
+                    """
+                    
+                    rag_response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=rag_prompt
+                    )
+                    
+                    st.markdown("#### 👨‍🏫 Câu trả lời từ trợ lý:")
+                    st.write(rag_response.text)
+                    
+                    with st.expander("🔍 Xem các nguồn thông tin được trích lục từ PDF"):
+                        for idx, doc in enumerate(matched_docs):
+                            st.info(f"**Nguồn {idx+1}:** {doc.page_content}")
+                            
+                except Exception as e:
+                    st.error(f"Không thể xử lý câu hỏi: {e}")
