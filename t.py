@@ -119,8 +119,7 @@ if uploaded_file is not None:
                 )
 
                 clean_text = response.text.strip()
-                if clean_text.startswith("
-```json"):
+                if clean_text.startswith("```json"):
                     clean_text = clean_text[7:]
                 if clean_text.endswith("```"):
                     clean_text = clean_text[:-3]
