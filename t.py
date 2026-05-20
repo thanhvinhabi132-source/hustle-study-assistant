@@ -89,7 +89,6 @@ if uploaded_file is not None:
                 st.session_state["full_text_backup"] = full_text
                 status.update(label="Xử lý dữ liệu RAG thành công!", state="complete", expanded=False)
             except Exception as embed_err:
-                # 🔥 ĐÃ SỬA LỖI: Điền đầy đủ chuỗi f-string không bị mất chữ
                 status.update(label=f"Lỗi khi tạo Vector: {embed_err}", state="error", expanded=True)
                 st.stop()
 
@@ -143,4 +142,60 @@ if uploaded_file is not None:
 
                 parsed_json = json.loads(clean_text)
                 st.session_state["ai_data"] = parsed_json
-                st.success
+                st.success("Phân tích hoàn tất!")
+
+            except Exception as e:
+                st.error(f"Có lỗi xảy ra trong quá trình phân tích: {e}")
+
+    # 3. Hiển thị kết quả trực quan
+    if "ai_data" in st.session_state:
+        data = st.session_state["ai_data"]
+        st.divider()
+        
+        st.markdown("### 📝 1. Tóm tắt kiến thức cốt lõi")
+        for point in data.get("summary", []):
+            st.markdown(f"- {point}")
+            
+        st.markdown("### 🔍 2. Thuật ngữ chuyên ngành")
+        terms_list = data.get("terms", [])
+        if terms_list:
+            num_cols = min(len(terms_list), 3)
+            cols = st.columns(num_cols)
+            for idx, t in enumerate(terms_list):
+                col_idx = idx % num_cols
+                with cols[col_idx]:
+                    st.info(f"**{t.get('term')}**\n\n*{t.get('definition')}*")
+
+        st.markdown("### 🧠 3. Thử thách trắc nghiệm ôn tập")
+        quiz_list = data.get("quiz", [])
+        if quiz_list:
+            tabs = st.tabs([f"Câu {x+1}" for x in range(len(quiz_list))])
+            for i, tab in enumerate(tabs):
+                with tab:
+                    item = quiz_list[i]
+                    st.markdown(f"**Câu hỏi:** {item.get('question')}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=item.get("options", []), index=None, key=f"q_v6_{i}")
+                    
+                    if user_choice:
+                        if user_choice == item.get("correct"):
+                            st.success("🎉 Xuất sắc!")
+                        else:
+                            st.error(f"❌ Đáp án đúng là: {item.get('correct')}")
+                        st.caption(f"💡 Phân tích: {item.get('explain')}")
+
+        st.divider()
+        st.markdown("### 💬 4. Hỏi đáp Siêu tốc về Tài liệu (RAG Q&A)")
+        user_question = st.text_input("Nhập câu hỏi của bạn:", key="rag_query_input")
+        
+        if user_question:
+            with st.spinner("Đang truy vấn dữ liệu..."):
+                try:
+                    db_retriever = st.session_state["vector_db_v6"].as_retriever(search_kwargs={"k": 4})
+                    matched_docs = db_retriever.invoke(user_question)
+                    rag_context = "\n\n".join([d.page_content for d in matched_docs])
+                    
+                    rag_prompt = f"Dựa vào văn bản sau:\n{rag_context}\n\nHãy trả lời câu hỏi: {user_question}"
+                    rag_response = client.models.generate_content(model="gemini-2.5-flash", contents=rag_prompt)
+                    st.write(rag_response.text)
+                except Exception as e:
+                    st.error(f"Không thể xử lý câu hỏi: {e}")
