@@ -43,7 +43,7 @@ class GeminiEmbeddings:
         )
         return response.embeddings[0].values
 
-    # 🔥 SỬA LỖI 'not callable': Cho phép FAISS gọi trực tiếp object này khi thực hiện truy vấn
+    # Định nghĩa cấu trúc callable rõ ràng cho FAISS và các thư viện kế thừa của LangChain
     def __call__(self, text):
         if isinstance(text, list):
             return self.embed_documents(text)
@@ -62,8 +62,8 @@ st.markdown("""
 uploaded_file = st.file_uploader("Chọn file PDF bài giảng (Slide, giáo trình...)", type="pdf")
 
 if uploaded_file is not None:
-    # Biến trạng thái kiểm tra xem hệ thống đã nạp xong cơ sở dữ liệu chưa
-    if "vector_db" not in st.session_state:
+    # ĐỔI KEY THÀNH vector_db_v2 ĐỂ ÉP REFRESH BỘ NHỚ LƯU TRỮ CŨ TRÊN SERVER
+    if "vector_db_v2" not in st.session_state:
         with st.status("Đang xây dựng cơ sở dữ liệu RAG...", expanded=True) as status:
             st.write("Đang trích xuất văn bản từ PDF...")
             reader = PdfReader(uploaded_file)
@@ -91,7 +91,7 @@ if uploaded_file is not None:
                 st.write("Đang khởi tạo cơ sở dữ liệu tìm kiếm FAISS...")
                 vector_db = FAISS.from_documents(docs, embeddings_model)
                 
-                st.session_state["vector_db"] = vector_db
+                st.session_state["vector_db_v2"] = vector_db
                 st.session_state["full_text_backup"] = full_text
                 status.update(label="Xử lý dữ liệu RAG thành công!", state="complete", expanded=False)
             except Exception as embed_err:
@@ -102,7 +102,7 @@ if uploaded_file is not None:
     if st.button("🚀 Bắt đầu phân tích với AI"):
         with st.spinner('Đợi chút, Gemini đang "lọc" các phần quan trọng nhất để soạn đề giúp bạn...'):
             try:
-                retriever = st.session_state["vector_db"].as_retriever(search_kwargs={"k": 8})
+                retriever = st.session_state["vector_db_v2"].as_retriever(search_kwargs={"k": 8})
                 relevant_docs = retriever.invoke("khái niệm định nghĩa lý thuyết trọng tâm công thức bài tập")
                 context_text = "\n---\n".join([doc.page_content for doc in relevant_docs])
 
@@ -195,7 +195,7 @@ if uploaded_file is not None:
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
                     opts = item.get("options", [])
-                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_{i}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_v2_{i}")
                     
                     if user_choice:
                         if user_choice == item.get("correct"):
@@ -216,7 +216,7 @@ if uploaded_file is not None:
         if user_question:
             with st.spinner("Đang truy vấn dữ liệu và phân tích văn bản..."):
                 try:
-                    db_retriever = st.session_state["vector_db"].as_retriever(search_kwargs={"k": 4})
+                    db_retriever = st.session_state["vector_db_v2"].as_retriever(search_kwargs={"k": 4})
                     matched_docs = db_retriever.invoke(user_question)
                     
                     rag_context = "\n\n".join([f"[Đoạn tham khảo {idx+1}]: {d.page_content}" for idx, d in enumerate(matched_docs)])
