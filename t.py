@@ -10,7 +10,7 @@ from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # --- CẤU HÌNH ---
-# Gọi API Key một cách an toàn từ Secrets của Streamlit
+# Gọi API Key một cách an safe từ Secrets của Streamlit
 MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # Khởi tạo Client cho Gemini (Dùng cho generate text thông thường)
@@ -40,6 +40,10 @@ if uploaded_file is not None:
                 if text:
                     full_text += text + "\n"
             
+            # 🔥 SỬA LỖI ENCODE: Làm sạch văn bản, loại bỏ các ký tự lỗi mã hóa (surrogates)
+            # Kỹ thuật 'ignore' sẽ tự động bỏ qua các ký tự không thể mã hóa sang utf-8
+            full_text = full_text.encode('utf-8', 'ignore').decode('utf-8')
+            
             if not full_text.strip():
                 status.update(label="Lỗi: PDF không có dữ liệu văn bản (có thể là file ảnh quét)!", state="error", expanded=True)
                 st.stop()
@@ -51,7 +55,6 @@ if uploaded_file is not None:
             
             st.write("Đang mã hóa Vector (Embedding) bằng mô hình Google...")
             try:
-                # SỬ DỤNG THƯ VIỆN CHUẨN ĐỂ TRÁNH LỖI LINE 21
                 embeddings_model = GoogleGenerativeAIEmbeddings(
                     model="models/text-embedding-004", 
                     google_api_key=MY_API_KEY
@@ -198,7 +201,7 @@ if uploaded_file is not None:
                     Bạn là giảng viên Đại học Bách Khoa Hà Nội, đang giải đáp thắc mắc cho sinh viên.
                     Hãy trả lời câu hỏi sau đây một cách chính xác, mạch lạc dựa trên phần tài liệu tham khảo được trích xuất từ giáo trình.
 
-                    TÀI LIỆU THAM KHẢO CHÍNH XÁC:
+                    TÀI LIỆ như CHÍNH XÁC:
                     {rag_context}
 
                     CÂU HỎI CỦA SINH VIÊN:
