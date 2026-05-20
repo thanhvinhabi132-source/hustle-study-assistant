@@ -5,3 +5,4 @@ langchain-text-splitters
 langchain-community
 faiss-cpu
 numpy
+langchain-google-genai
