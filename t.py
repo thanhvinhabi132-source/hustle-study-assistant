@@ -3,10 +3,11 @@ from google import genai
 from PyPDF2 import PdfReader
 import json
 
-# Các thư viện bổ sung cho cấu trúc dữ liệu RAG
+# Các thư viện bổ sung cho cấu trúc dữ liệu RAG và định dạng chuẩn
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
 # --- CẤU HÌNH ---
 # Gọi API Key một cách an toàn từ Secrets của Streamlit
@@ -15,8 +16,8 @@ MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 # Khởi tạo Client duy nhất cho SDK chính thức của Google GenAI
 client = genai.Client(api_key=MY_API_KEY)
 
-# Lớp tùy biến tích hợp Vector Embedding thế hệ mới sử dụng SDK chính thức
-class GeminiEmbeddings:
+# Lớp tùy biến tích hợp Vector Embedding thế hệ mới dựa trên chuẩn LangChain Embeddings
+class GeminiEmbeddings(Embeddings):
     def embed_documents(self, texts):
         embeddings = []
         for text in texts:
@@ -25,6 +26,8 @@ class GeminiEmbeddings:
                 safe_text = text.encode('utf-8', 'ignore').decode('utf-8')
                 if not safe_text.strip():
                     safe_text = "blank"
+                
+                # 🔥 SỬA LỖI 404: Bỏ tiền tố "models/", chỉ viết "text-embedding-004"
                 response = client.models.embed_content(
                     model="text-embedding-004",
                     contents=safe_text
@@ -37,17 +40,12 @@ class GeminiEmbeddings:
 
     def embed_query(self, text):
         safe_text = text.encode('utf-8', 'ignore').decode('utf-8')
+        # 🔥 SỬA LỖI 404: Bỏ tiền tố "models/", chỉ viết "text-embedding-004"
         response = client.models.embed_content(
             model="text-embedding-004",
             contents=safe_text
         )
         return response.embeddings[0].values
-
-    # Định nghĩa cấu trúc callable rõ ràng cho FAISS và các thư viện kế thừa của LangChain
-    def __call__(self, text):
-        if isinstance(text, list):
-            return self.embed_documents(text)
-        return self.embed_query(text)
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
 st.set_page_config(page_title="HUSTle Assistant", page_icon="🎓", layout="centered")
@@ -62,8 +60,8 @@ st.markdown("""
 uploaded_file = st.file_uploader("Chọn file PDF bài giảng (Slide, giáo trình...)", type="pdf")
 
 if uploaded_file is not None:
-    # ĐỔI KEY THÀNH vector_db_v2 ĐỂ ÉP REFRESH BỘ NHỚ LƯU TRỮ CŨ TRÊN SERVER
-    if "vector_db_v2" not in st.session_state:
+    # Sử dụng key phiên bản mới để ép hệ thống xóa bộ nhớ đệm cache cũ bị lỗi trên server
+    if "vector_db_v3" not in st.session_state:
         with st.status("Đang xây dựng cơ sở dữ liệu RAG...", expanded=True) as status:
             st.write("Đang trích xuất văn bản từ PDF...")
             reader = PdfReader(uploaded_file)
@@ -91,7 +89,7 @@ if uploaded_file is not None:
                 st.write("Đang khởi tạo cơ sở dữ liệu tìm kiếm FAISS...")
                 vector_db = FAISS.from_documents(docs, embeddings_model)
                 
-                st.session_state["vector_db_v2"] = vector_db
+                st.session_state["vector_db_v3"] = vector_db
                 st.session_state["full_text_backup"] = full_text
                 status.update(label="Xử lý dữ liệu RAG thành công!", state="complete", expanded=False)
             except Exception as embed_err:
@@ -102,7 +100,7 @@ if uploaded_file is not None:
     if st.button("🚀 Bắt đầu phân tích với AI"):
         with st.spinner('Đợi chút, Gemini đang "lọc" các phần quan trọng nhất để soạn đề giúp bạn...'):
             try:
-                retriever = st.session_state["vector_db_v2"].as_retriever(search_kwargs={"k": 8})
+                retriever = st.session_state["vector_db_v3"].as_retriever(search_kwargs={"k": 8})
                 relevant_docs = retriever.invoke("khái niệm định nghĩa lý thuyết trọng tâm công thức bài tập")
                 context_text = "\n---\n".join([doc.page_content for doc in relevant_docs])
 
@@ -195,7 +193,7 @@ if uploaded_file is not None:
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
                     opts = item.get("options", [])
-                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_v2_{i}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_v3_{i}")
                     
                     if user_choice:
                         if user_choice == item.get("correct"):
@@ -216,7 +214,7 @@ if uploaded_file is not None:
         if user_question:
             with st.spinner("Đang truy vấn dữ liệu và phân tích văn bản..."):
                 try:
-                    db_retriever = st.session_state["vector_db_v2"].as_retriever(search_kwargs={"k": 4})
+                    db_retriever = st.session_state["vector_db_v3"].as_retriever(search_kwargs={"k": 4})
                     matched_docs = db_retriever.invoke(user_question)
                     
                     rag_context = "\n\n".join([f"[Đoạn tham khảo {idx+1}]: {d.page_content}" for idx, d in enumerate(matched_docs)])
