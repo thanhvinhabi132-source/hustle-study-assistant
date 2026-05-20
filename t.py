@@ -15,7 +15,7 @@ MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 # Khởi tạo Client duy nhất cho SDK chính thức của Google GenAI
 client = genai.Client(api_key=MY_API_KEY)
 
-# Lớp tùy biến tích hợp Vector Embedding thế hệ mới sử dụng SDK chính thức, gộp mảng tự động
+# Lớp tùy biến tích hợp Vector Embedding thế hệ mới sử dụng SDK chính thức
 class GeminiEmbeddings:
     def embed_documents(self, texts):
         embeddings = []
@@ -42,6 +42,12 @@ class GeminiEmbeddings:
             contents=safe_text
         )
         return response.embeddings[0].values
+
+    # 🔥 SỬA LỖI 'not callable': Cho phép FAISS gọi trực tiếp object này khi thực hiện truy vấn
+    def __call__(self, text):
+        if isinstance(text, list):
+            return self.embed_documents(text)
+        return self.embed_query(text)
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
 st.set_page_config(page_title="HUSTle Assistant", page_icon="🎓", layout="centered")
@@ -188,9 +194,8 @@ if uploaded_file is not None:
                     item = quiz_list[i]
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
-                    # Làm sạch giao diện hiển thị câu hỏi trắc nghiệm radio chọn đáp án
                     opts = item.get("options", [])
-                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_{i}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_{i}")
                     
                     if user_choice:
                         if user_choice == item.get("correct"):
