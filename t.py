@@ -3,17 +3,17 @@ from google import genai
 from PyPDF2 import PdfReader
 import json
 
-# Các thư viện bổ sung cho cấu trúc dữ liệu RAG chuẩn hóa
+# Các thư viện bổ sung cho cấu trúc dữ liệu RAG
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # --- CẤU HÌNH ---
-# Gọi API Key một cách an toàn từ Secrets của Streamlit
+# Gọi API Key một cách an toàn từ Secrets của Streamlit cho phần LLM Chat
 MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# Khởi tạo Client duy nhất cho SDK chính thức của Google GenAI (Dùng để sinh văn bản/JSON)
+# Khởi tạo Client duy nhất cho SDK chính thức của Google GenAI (Chỉ dùng sinh văn bản)
 client = genai.Client(api_key=MY_API_KEY)
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
@@ -29,8 +29,8 @@ st.markdown("""
 uploaded_file = st.file_uploader("Chọn file PDF bài giảng (Slide, giáo trình...)", type="pdf")
 
 if uploaded_file is not None:
-    # Đổi sang Key v4 hoàn toàn mới để ép server dọn sạch sẽ bộ nhớ RAM lỗi trước đó
-    if "vector_db_final" not in st.session_state:
+    # Đổi tên khóa lưu trữ sang v5 để ép hệ thống xóa sạch toàn bộ rác cache cũ bị lỗi
+    if "vector_db_v5" not in st.session_state:
         with st.status("Đang xây dựng cơ sở dữ liệu RAG...", expanded=True) as status:
             st.write("Đang trích xuất văn bản từ PDF...")
             reader = PdfReader(uploaded_file)
@@ -40,7 +40,7 @@ if uploaded_file is not None:
                 if text:
                     full_text += text + "\n"
             
-            # Khắc phục lỗi mã hóa utf-8 chứa ký tự đặc biệt lạ bằng cách ignore surrogate
+            # Khắc phục triệt để lỗi mã hóa utf-8 chứa ký tự đặc biệt lạ bằng ignore
             full_text = full_text.encode('utf-8', 'ignore').decode('utf-8')
             
             if not full_text.strip():
@@ -52,18 +52,15 @@ if uploaded_file is not None:
             chunks = text_splitter.split_text(full_text)
             docs = [Document(page_content=chunk) for chunk in chunks]
             
-            st.write("Đang mã hóa Vector (Embedding) bằng mô hình Google...")
+            st.write("Đang tải mô hình Vector mã nguồn mở về Server (Giải pháp chống lỗi 404)...")
             try:
-                # Định dạng gọi mô hình chuẩn hóa của langchain-google-genai để tránh lỗi 404 endpoint
-                embeddings_model = GoogleGenerativeAIEmbeddings(
-                    model="text-embedding-004", 
-                    google_api_key=MY_API_KEY
-                )
+                # Sử dụng mô hình cục bộ không cần API Key, loại bỏ hoàn toàn lỗi 404 kết nối Google
+                embeddings_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
                 
                 st.write("Đang khởi tạo cơ sở dữ liệu tìm kiếm FAISS...")
                 vector_db = FAISS.from_documents(docs, embeddings_model)
                 
-                st.session_state["vector_db_final"] = vector_db
+                st.session_state["vector_db_v5"] = vector_db
                 st.session_state["full_text_backup"] = full_text
                 status.update(label="Xử lý dữ liệu RAG thành công!", state="complete", expanded=False)
             except Exception as embed_err:
@@ -74,7 +71,7 @@ if uploaded_file is not None:
     if st.button("🚀 Bắt đầu phân tích với AI"):
         with st.spinner('Đợi chút, Gemini đang "lọc" các phần quan trọng nhất để soạn đề giúp bạn...'):
             try:
-                retriever = st.session_state["vector_db_final"].as_retriever(search_kwargs={"k": 8})
+                retriever = st.session_state["vector_db_v5"].as_retriever(search_kwargs={"k": 8})
                 relevant_docs = retriever.invoke("khái niệm định nghĩa lý thuyết trọng tâm công thức bài tập")
                 context_text = "\n---\n".join([doc.page_content for doc in relevant_docs])
 
@@ -109,6 +106,7 @@ if uploaded_file is not None:
                     contents=prompt_content
                 )
 
+                # Làm sạch chuỗi phản hồi bảo đảm không bị dính lỗi cú pháp cắt chuỗi
                 clean_text = response.text.strip()
                 if clean_text.startswith("```json"):
                     clean_text = clean_text[7:]
@@ -167,7 +165,7 @@ if uploaded_file is not None:
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
                     opts = item.get("options", [])
-                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_v4_{i}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_fixed_v5_{i}")
                     
                     if user_choice:
                         if user_choice == item.get("correct"):
@@ -188,7 +186,7 @@ if uploaded_file is not None:
         if user_question:
             with st.spinner("Đang truy vấn dữ liệu và phân tích văn bản..."):
                 try:
-                    db_retriever = st.session_state["vector_db_final"].as_retriever(search_kwargs={"k": 4})
+                    db_retriever = st.session_state["vector_db_v5"].as_retriever(search_kwargs={"k": 4})
                     matched_docs = db_retriever.invoke(user_question)
                     
                     rag_context = "\n\n".join([f"[Đoạn tham khảo {idx+1}]: {d.page_content}" for idx, d in enumerate(matched_docs)])
