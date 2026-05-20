@@ -3,18 +3,45 @@ from google import genai
 from PyPDF2 import PdfReader
 import json
 
-# Thêm các thư viện bổ sung cho hệ thống RAG và Google GenAI chính thức
+# Các thư viện bổ sung cho cấu trúc dữ liệu RAG
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # --- CẤU HÌNH ---
 # Gọi API Key một cách an toàn từ Secrets của Streamlit
 MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# Khởi tạo Client cho Gemini (Dùng cho generate text thông thường)
+# Khởi tạo Client duy nhất cho SDK chính thức của Google GenAI
 client = genai.Client(api_key=MY_API_KEY)
+
+# Lớp tùy biến tích hợp Vector Embedding thế hệ mới sử dụng SDK chính thức, gộp mảng tự động
+class GeminiEmbeddings:
+    def embed_documents(self, texts):
+        embeddings = []
+        for text in texts:
+            try:
+                # Làm sạch dữ liệu chuỗi để tránh lỗi surrogate cặp ký tự lỗi
+                safe_text = text.encode('utf-8', 'ignore').decode('utf-8')
+                if not safe_text.strip():
+                    safe_text = "blank"
+                response = client.models.embed_content(
+                    model="text-embedding-004",
+                    contents=safe_text
+                )
+                embeddings.append(response.embeddings[0].values)
+            except Exception:
+                # Tạo vector giả định dạng 768 chiều nếu một đoạn văn bản nhỏ bị lỗi nặng
+                embeddings.append([0.0] * 768)
+        return embeddings
+
+    def embed_query(self, text):
+        safe_text = text.encode('utf-8', 'ignore').decode('utf-8')
+        response = client.models.embed_content(
+            model="text-embedding-004",
+            contents=safe_text
+        )
+        return response.embeddings[0].values
 
 # --- GIAO DIỆN ỨNG DỤNG (STREAMLIT) ---
 st.set_page_config(page_title="HUSTle Assistant", page_icon="🎓", layout="centered")
@@ -40,11 +67,11 @@ if uploaded_file is not None:
                 if text:
                     full_text += text + "\n"
             
-            # Khắc phục lỗi mã hóa utf-8 chứa ký tự surrogate từ tài liệu gốc
+            # Khắc phục lỗi mã hóa utf-8 chứa ký tự đặc biệt lạ
             full_text = full_text.encode('utf-8', 'ignore').decode('utf-8')
             
             if not full_text.strip():
-                status.update(label="Lỗi: PDF không có dữ liệu văn bản (có thể là file ảnh quét)!", state="error", expanded=True)
+                status.update(label="Lỗi: PDF không có dữ liệu văn bản (file ảnh quét)!", state="error", expanded=True)
                 st.stop()
                 
             st.write("Đang cắt nhỏ tài liệu thành các phân đoạn (Chunks)...")
@@ -54,12 +81,7 @@ if uploaded_file is not None:
             
             st.write("Đang mã hóa Vector (Embedding) bằng mô hình Google...")
             try:
-                # Sử dụng tên mô hình chuẩn v1 của Google để tránh lỗi 404
-                embeddings_model = GoogleGenerativeAIEmbeddings(
-                    model="models/embedding-001", 
-                    google_api_key=MY_API_KEY
-                )
-                
+                embeddings_model = GeminiEmbeddings()
                 st.write("Đang khởi tạo cơ sở dữ liệu tìm kiếm FAISS...")
                 vector_db = FAISS.from_documents(docs, embeddings_model)
                 
@@ -166,9 +188,9 @@ if uploaded_file is not None:
                     item = quiz_list[i]
                     st.markdown(f"**Câu hỏi:** {item.get('question')}")
                     
-                    # ĐÃ SỬA: Viết gọn lại hàm radio trên các dòng rõ ràng, tránh tuyệt đối lỗi thiếu dấu ngoặc đóng
+                    # Làm sạch giao diện hiển thị câu hỏi trắc nghiệm radio chọn đáp án
                     opts = item.get("options", [])
-                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_key_{i}")
+                    user_choice = st.radio("Chọn một đáp án đúng:", options=opts, index=None, key=f"q_final_{i}")
                     
                     if user_choice:
                         if user_choice == item.get("correct"):
