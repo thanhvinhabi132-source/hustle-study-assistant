@@ -156,104 +156,65 @@ if "ai_data" in st.session_state:
 
 
 
-# --- CHATBOT PHONG CÁCH MESSENGER CHUẨN CẤU TRÚC (ĐẶT SÁT LỀ TRÁI) ---
+# --- CHATBOT TRỢ LÝ HUST TRÊN THANH SIDEBAR (ĐẶT SÁT LỀ TRÁI) ---
+st.sidebar.markdown("## 🤖 HUST Assistant")
+st.sidebar.caption("⚡ Trợ lý ảo hỗ trợ học tập Bách Khoa")
 
-# Khởi tạo trạng thái đóng/mở của khung chat
-if "chat_open" not in st.session_state:
-    st.session_state["chat_open"] = False
+# Tạo ô nhập API Key an toàn ngay trên Sidebar để test hoặc cho người dùng tự điền
+# Nếu trong Streamlit Secrets có key rồi thì tự lấy, nếu chưa có thì lấy từ ô nhập này
+if "GEMINI_API_KEY" in st.secrets:
+    api_key_to_use = st.secrets["GEMINI_API_KEY"]
+else:
+    api_key_to_use = st.sidebar.text_input("Nhập Gemini API Key của bạn để chat:", type="password")
 
-# 1. Nhúng CSS để ép toàn bộ cụm chat cố định hoàn toàn ở góc dưới bên phải
-st.html("""
-    <style>
-        /* Ép nút bấm luôn nằm cố định ở góc dưới cùng bên phải màn hình */
-        .stButton > button[key="messenger_toggle_btn"] {
-            position: fixed !important;
-            bottom: 30px !important;
-            right: 30px !important;
-            z-index: 999999 !important;
-            background: linear-gradient(135deg, #FF4B4B 0%, #FF8533 100%) !important;
-            color: white !important;
-            font-weight: bold !important;
-            border-radius: 50px !important;
-            padding: 12px 24px !important;
-            box-shadow: 0px 4px 15px rgba(255, 75, 75, 0.4) !important;
-            border: none !important;
-        }
+st.sidebar.divider()
 
-        /* Khung chứa chat box cố định góc phải, nổi lên trên nền JSON */
-        div.fixed-chat-window {
-            position: fixed !important;
-            bottom: 95px !important;
-            right: 30px !important;
-            width: 380px !important;
-            background-color: #1E1E1E !important; /* Đổi sang nền tối để hợp với style Bách Khoa và nổi bật viền */
-            border-radius: 16px !important;
-            box-shadow: 0px 8px 32px rgba(0,0,0,0.5) !important;
-            z-index: 999998 !important;
-            border: 2px solid #FF4B4B !important;
-            padding: 15px !important;
-        }
-        
-        /* Làm đẹp phần chữ tiêu đề trong khung chat */
-        div.fixed-chat-window h4 {
-            color: #FFFFFF !important;
-            margin-bottom: 2px !important;
-        }
-    </style>
-""")
-
-# 2. Hiển thị nút bấm bong bóng chat
-if st.button("💬 Trợ lý HUST", key="messenger_toggle_btn"):
-    st.session_state["chat_open"] = not st.session_state["chat_open"]
-    st.rerun()
-
-# 3. Nếu trạng thái mở, tạo cửa sổ Chatbox bọc trong Class CSS cố định góc màn hình
-if st.session_state["chat_open"]:
-    # Bắt đầu bọc khung chat
-    st.markdown('<div class="fixed-chat-window">', unsafe_allow_html=True)
-    
-    st.markdown("#### 🤖 HUST Assistant")
-    st.caption("⚡ Trợ lý ảo đang trực tuyến")
-    st.markdown("<hr style='margin: 8px 0; border-color: #444;'/>", unsafe_allow_html=True)
-    
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [
-            {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Tôi có thể giúp gì cho bạn?"}
+# Chỉ chạy khung chat nếu đã tìm thấy API Key (bằng Secrets hoặc điền tay)
+if api_key_to_use:
+    # Khởi tạo lịch sử chat trong Sidebar
+    if "sidebar_chat_history" not in st.session_state:
+        st.session_state["sidebar_chat_history"] = [
+            {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Bạn cần tôi hỗ trợ gì về tài liệu hay môn học tại HUST không?"}
         ]
 
-    # Khung chứa nội dung tin nhắn (Giới hạn chiều cao để nằm gọn trong bong bóng)
-    chat_container = st.container(height=250, border=False)
-    with chat_container:
-        for message in st.session_state["chat_history"]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    # Khung chứa nội dung chat nằm gọn trong thanh Sidebar
+    with st.sidebar.container():
+        for message in st.session_state["sidebar_chat_history"]:
+            with st.sidebar.chat_message(message["role"]):
+                st.sidebar.markdown(message["content"])
 
-    # Ô nhập câu hỏi
-    user_query = st.chat_input("Nhập câu hỏi...", key="msn_input_fixed")
+    # Ô nhập câu hỏi riêng biệt cho Sidebar (Không bị xung đột với ô nhập chính)
+    user_query = st.sidebar.chat_input("Hỏi trợ lý HUST...", key="sidebar_chat_input")
 
     if user_query:
-        st.session_state["chat_history"].append({"role": "user", "content": user_query})
+        # Hiển thị câu hỏi của bạn
+        st.session_state["sidebar_chat_history"].append({"role": "user", "content": user_query})
         
         try:
+            # Gọi API bằng Key an toàn
+            from google import genai
+            # Tạo một client cục bộ sử dụng key vừa tìm được để tránh lỗi dòng số 8
+            local_client = genai.Client(api_key=api_key_to_use)
+            
             system_instruction = (
                 "Bạn là HUST Assistant - trợ lý ảo thông minh của Đại học Bách Khoa Hà Nội. "
                 "Hãy trả lời ngắn gọn, tập trung thẳng vào câu hỏi bằng tiếng Việt."
             )
-            response = client.models.generate_content(
+            
+            response = local_client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=user_query,
                 config={"system_instruction": system_instruction}
             )
+            
             ai_reply = response.text if response.text else "Tôi chưa rõ ý bạn."
-            st.session_state["chat_history"].append({"role": "assistant", "content": ai_reply})
+            st.session_state["sidebar_chat_history"].append({"role": "assistant", "content": ai_reply})
             
         except Exception as e:
-            if "429" in str(e):
-                st.session_state["chat_history"].append({"role": "assistant", "content": "⏳ Hệ thống bận, thử lại sau vài giây."})
-            else:
-                st.session_state["chat_history"].append({"role": "assistant", "content": f"Lỗi: {e}"})
+            st.session_state["sidebar_chat_history"].append({"role": "assistant", "content": f"Lỗi kết nối: {e}"})
         
         st.rerun()
-
+else:
+    st.sidebar.warning("🔑 Vui lòng cấu hình GEMINI_API_KEY trong mục Secrets của Streamlit hoặc nhập trực tiếp vào ô trống phía trên để bắt đầu trò chuyện với trợ lý ảo!")
     # Đóng bọc khung chat
     st.markdown('</div>', unsafe_allow_html=True)
