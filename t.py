@@ -156,74 +156,115 @@ if "ai_data" in st.session_state:
 
 
 
-# --- ĐOẠN CODE CHATBOT BONG BÓNG ẨN HIỆN (ĐẶT SÁT LỀ TRÁI) ---
-st.divider()
+# --- CHATBOT PHONG CÁCH MESSENGER (ĐẶT SÁT LỀ TRÁI NGOÀI CÙNG) ---
 
-# Khởi tạo trạng thái đóng/mở của khung chat nếu chưa có
+# 1. Nhúng CSS để ép nút bấm và khung chat cố định ở góc dưới bên phải màn hình
+st.html("""
+    <style>
+        /* Đưa nút bấm mở chat ra góc dưới cùng bên phải */
+        div[element-type="element"] button[key="messenger_toggle_btn"] {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            z-index: 999999 !important;
+            background: linear-gradient(135deg, #FF4B4B 0%, #FF8533 100%) !important; /* Màu cam đỏ nổi bật */
+            color: white !important;
+            font-weight: bold !important;
+            border-radius: 50px !important; /* Bo tròn như bong bóng chat */
+            padding: 10px 20px !important;
+            box-shadow: 0px 4px 15px rgba(255, 75, 75, 0.4) !important;
+            border: none !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        div[element-type="element"] button[key="messenger_toggle_btn"]:hover {
+            transform: scale(1.05) !important;
+            box-shadow: 0px 6px 20px rgba(255, 75, 75, 0.6) !important;
+        }
+
+        /* Định dạng khung chat nổi bần bật phía trên góc phải */
+        div.messenger-chat-box {
+            position: fixed !important;
+            bottom: 80px !important;
+            right: 20px !important;
+            width: 380px !important;
+            max-height: 500px !important;
+            background-color: #ffffff !important;
+            border-radius: 15px !important;
+            box-shadow: 0px 5px 25px rgba(0,0,0,0.2) !important;
+            z-index: 999998 !important;
+            border: 2px solid #FF4B4B !important; /* Viền đỏ cam nổi bật đối lập với JSON */
+            padding: 15px !important;
+            animation: msnFlyIn 0.3s ease-out !important; /* Hiệu ứng bay lên kiểu Messenger */
+            overflow-y: auto !important;
+        }
+
+        /* Hiệu ứng mượt mà khi mở khung chat */
+        @keyframes msnFlyIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+""")
+
+# Khởi tạo trạng thái đóng/mở của khung chat
 if "chat_open" not in st.session_state:
     st.session_state["chat_open"] = False
 
-# Tạo một hàng ngang cố định chứa biểu tượng nút bấm mở Chat ở góc dưới
-# Sử dụng emoji hoặc nút bấm nhỏ làm ký hiệu
-col_space, col_btn = st.columns([6, 1])
+# Nút bấm bong bóng chat luôn cố định ở góc màn hình nhờ CSS ở trên
+if st.button("💬 Trợ lý HUST", key="messenger_toggle_btn"):
+    st.session_state["chat_open"] = not st.session_state["chat_open"]
+    st.rerun()
 
-with col_btn:
-    # Nút bấm đổi trạng thái Đóng <-> Mở khi người dùng click vào
-    if st.button("💬 Trợ lý HUST", key="toggle_chat_btn", use_container_width=True):
-        st.session_state["chat_open"] = not st.session_state["chat_open"]
-
-# Nếu trạng thái là MỞ (True), giao diện chat mới hiện ra
+# Nếu người dùng bấm mở, hiển thị khung chat dạng bong bóng bay lên
 if st.session_state["chat_open"]:
-    st.markdown("---")
-    st.markdown("### 🤖 HUST Assistant đang trực tuyến")
-    
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = [
-            {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Tôi có thể giúp bạn giải đáp thông tin về trường, kinh nghiệm học tập, tài liệu môn học hoặc đề thi tại Bách Khoa. Bạn cần hỗ trợ gì nào?"}
-        ]
-
-    # Khung chứa nội dung chat
-    chat_container = st.container()
-    with chat_container:
-        for message in st.session_state["chat_history"]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-    # Ô nhập câu hỏi
-    user_query = st.chat_input("Nhập câu hỏi của bạn tại đây...")
-
-    if user_query:
-        with chat_container:
-            with st.chat_message("user"):
-                st.markdown(user_query)
+    # Tạo một vùng chứa có class CSS riêng để áp dụng hiệu ứng cố định góc màn hình
+    with st.container():
+        st.markdown('<div class="messenger-chat-box">', unsafe_allow_html=True)
         
-        st.session_state["chat_history"].append({"role": "user", "content": user_query})
+        st.markdown("#### 🤖 HUST Assistant")
+        st.caption("⚡ Trợ lý ảo trực tuyến Bách Khoa")
+        st.divider()
         
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = [
+                {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Tôi có thể giúp gì cho bạn?"}
+            ]
+
+        # Khung nội dung hiển thị hội thoại
+        chat_container = st.container(height=280, border=False)
         with chat_container:
-            with st.chat_message("assistant"):
-                with st.spinner("HUST Assistant đang trả lời..."):
-                    try:
-                        system_instruction = (
-                            "Bạn là HUST Assistant - trợ lý ảo thông minh, năng động của hệ thống hỗ trợ học tập "
-                            "sinh viên Đại học Bách Khoa Hà Nội. Hãy trả lời các câu hỏi của sinh viên một cách ngắn gọn, "
-                            "thẳng thắn, chính xác, mang phong cách kỹ thuật và hữu ích bằng tiếng Việt."
-                        )
-                        
-                        response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=user_query,
-                            config={
-                                "system_instruction": system_instruction
-                            }
-                        )
-                        
-                        ai_reply = response.text if response.text else "Xin lỗi, tôi chưa hiểu ý bạn."
-                        st.markdown(ai_reply)
-                        st.session_state["chat_history"].append({"role": "assistant", "content": ai_reply})
-                        st.rerun() # Làm mới lại để đồng bộ tin nhắn ngay lập tức
-                        
-                    except Exception as e:
-                        if "429" in str(e):
-                            st.error("⏳ Hệ thống đang quá tải. Bạn đợi khoảng 1 phút rồi nhắn lại nhé!")
-                        else:
-                            st.error(f"Có lỗi kết nối xảy ra: {e}")
+            for message in st.session_state["chat_history"]:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+        # Ô nhập câu hỏi nằm ở đáy của khung bong bóng chat
+        user_query = st.chat_input("Nhập câu hỏi...", key="msn_chat_input")
+
+        if user_query:
+            # Lưu và hiển thị câu hỏi người dùng
+            st.session_state["chat_history"].append({"role": "user", "content": user_query})
+            
+            # Gọi API lấy câu trả lời từ Gemini thực tế
+            try:
+                system_instruction = (
+                    "Bạn là HUST Assistant - trợ lý ảo thông minh của Đại học Bách Khoa Hà Nội. "
+                    "Hãy trả lời sinh viên ngắn gọn, chính xác, lịch sự bằng tiếng Việt."
+                )
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=user_query,
+                    config={"system_instruction": system_instruction}
+                )
+                ai_reply = response.text if response.text else "Tôi chưa rõ ý bạn."
+                st.session_state["chat_history"].append({"role": "assistant", "content": ai_reply})
+                
+            except Exception as e:
+                if "429" in str(e):
+                    st.session_state["chat_history"].append({"role": "assistant", "content": "⏳ Hệ thống đang bận, bạn thử lại sau vài giây nhé!"})
+                else:
+                    st.session_state["chat_history"].append({"role": "assistant", "content": f"Lỗi: {e}"})
+            
+            st.rerun() # Refresh lại để cập nhật tin nhắn ngay lập tức vào khung chat
+
+        st.markdown('</div>', unsafe_allow_html=True)
