@@ -126,7 +126,9 @@ if st.session_state["ai_data"] is not None:
     st.write("") 
 
     st.markdown("### 🧠 3. Thử thách trắc nghiệm ôn tập")
-    quiz_list = data.get("quiz", []):
+    st.caption("Hãy chọn đáp án của bạn cho từng câu hỏi dưới đây để kiểm tra kiến thức:")
+    
+    quiz_list = data.get("quiz", [])
     if quiz_list:
         tabs = st.tabs([f"Câu {x+1}" for x in range(len(quiz_list))])
         for i, tab in enumerate(tabs):
