@@ -5,7 +5,11 @@ import json
 
 # --- CẤU HÌNH ---
 # Gọi API Key một cách an toàn từ Secrets của Streamlit
-MY_API_KEY = st.secrets["GEMINI_API_KEY"]
+# Thay vì gọi trực tiếp gây crash, ta kiểm tra trước xem trong Secrets đã có Key chưa
+if "GEMINI_API_KEY" in st.secrets:
+    MY_API_KEY = st.secrets["GEMINI_API_KEY"]
+else:
+    MY_API_KEY = None
 
 # Khởi tạo Client cho Gemini
 client = genai.Client(api_key=MY_API_KEY)
