@@ -32,7 +32,7 @@ with st.form("uploader_form"):
     uploaded_file = st.file_uploader("Chọn file PDF bài giảng (Slide, giáo trình, ảnh scan...)", type="pdf")
     submit_button = st.form_submit_button("🚀 Bắt đầu phân tích với AI")
 
-# XỬ LÝ GỬI FILE THÔ SANG GEMINI
+# XỬ LÝ GỬI FILE THÔ SANG GEMINI (HỖ TRỢ OCR ẢNH)
 if submit_button:
     if uploaded_file is None:
         st.warning("Vui lòng tải file PDF lên trước!")
@@ -41,10 +41,10 @@ if submit_button:
     else:
         with st.spinner('Đợi chút, Giáo sư AI đang "nhìn" và phân tích toàn bộ trang PDF (kể cả hình ảnh) giúp bạn...'):
             try:
-                # Đọc file PDF thành dữ liệu bytes thô
+                # Đọc file PDF thành dữ liệu bytes thô để gửi thẳng qua API
                 pdf_bytes = uploaded_file.read()
 
-                # Cấu hình Prompt yêu cầu AI đọc và phân tích dữ liệu đa phương thức
+                # Cấu hình Prompt ép AI xuất dữ liệu cấu trúc JSON
                 prompt_content = """
                 Bạn là một giáo sư tại Đại học Bách Khoa Hà Nội. 
                 Hãy đọc và phân tích kỹ tài liệu PDF được đính kèm (bao gồm cả việc nhìn các hình ảnh, chữ quét scan trong file nếu có).
@@ -68,7 +68,7 @@ if submit_button:
                 Yêu cầu bắt buộc: Tạo đúng 5 câu hỏi trắc nghiệm trong mảng "quiz".
                 """
 
-                # Sử dụng types.Part.from_bytes để truyền thẳng file PDF sang cho Gemini tự OCR
+                # Truyền dữ liệu dạng Đa phương thức (Multimodal) giúp Gemini tự động quét OCR hình ảnh
                 response = client_pdf.models.generate_content(
                     model="gemini-2.5-flash", 
                     contents=[
@@ -92,7 +92,7 @@ if submit_button:
                 else:
                     st.error(f"Có lỗi xảy ra khi phân tích: {e}")
 
-# HIỂN THỊ KẾT QUẢ MÀN HÌNH CHÍNH
+# HIỂN THỊ KẾT QUẢ TRÊN MÀN HÌNH CHÍNH
 if st.session_state["ai_data"] is not None:
     data = st.session_state["ai_data"]
     st.divider()
@@ -133,7 +133,7 @@ if st.session_state["ai_data"] is not None:
                         st.write(item.get("explain"))
 
 
-# --- CHATBOT TRỢ LÝ HUST TRÊN THANH SIDEBAR ---
+# --- CHATBOT TRỢ LÝ HUST TRÊN THANH SIDEBAR (FIX LỖI IM LẶNG) ---
 st.sidebar.markdown("## 🤖 HUST Assistant")
 st.sidebar.caption("⚡ Trợ lý ảo hỗ trợ học tập Bách Khoa")
 
@@ -147,24 +147,27 @@ st.sidebar.divider()
 if api_key_to_use:
     if "sidebar_chat_history" not in st.session_state:
         st.session_state["sidebar_chat_history"] = [
-            {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Tôi chạy bằng luồng API Key độc lập nên tốc độ phản hồi sẽ cực kỳ nhanh và không lo nghẽn mạng nhé!"}
+            {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Bạn cần tôi hỗ trợ giải bài tập hay giải thích kiến thức gì nào?"}
         ]
 
+    # Khung hiển thị lịch sử chat ổn định
     with st.sidebar.container():
         for message in st.session_state["sidebar_chat_history"]:
             with st.sidebar.chat_message(message["role"]):
                 st.sidebar.markdown(message["content"])
 
+    # Ô nhập tin nhắn
     user_query = st.sidebar.chat_input("Hỏi trợ lý HUST...", key="sidebar_chat_input")
 
     if user_query:
+        # Cập nhật ngay lập tức tin nhắn của người dùng lên giao diện trước khi gọi API
         st.session_state["sidebar_chat_history"].append({"role": "user", "content": user_query})
         
         try:
             client_chat = genai.Client(api_key=api_key_to_use)
             system_instruction = (
                 "Bạn là HUST Assistant - trợ lý ảo thông minh của Đại học Bách Khoa Hà Nội. "
-                "Hãy trả lời ngắn gọn, tập trung thẳng vào câu hỏi bằng tiếng Việt."
+                "Hãy đóng vai một gia sư tận tâm, giải bài tập chi tiết từng bước, rõ ràng bằng tiếng Việt."
             )
             
             response = client_chat.models.generate_content(
@@ -173,13 +176,20 @@ if api_key_to_use:
                 config={"system_instruction": system_instruction}
             )
             
-            ai_reply = response.text if response.text else "Tôi chưa rõ ý bạn."
+            if response and response.text:
+                ai_reply = response.text
+            else:
+                ai_reply = "⚠️ Tôi đã nhận được câu hỏi nhưng hệ thống không thể xuất ra văn bản phản hồi. Bạn thử gửi lại câu hỏi rõ nghĩa hơn nhé!"
+                
             st.session_state["sidebar_chat_history"].append({"role": "assistant", "content": ai_reply})
             
         except Exception as e:
             error_msg = str(e)
             if "503" in error_msg or "UNAVAILABLE" in error_msg:
-                st.sidebar.error("⏳ Máy chủ bận, thử lại sau vài giây.")
+                st.session_state["sidebar_chat_history"].append({"role": "assistant", "content": "⏳ Máy chủ hiện tại đang bận xử lý luồng dữ liệu lớn. Bạn đợi vài giây rồi gửi lại nhé!"})
             else:
-                st.sidebar.error(f"Lỗi: {e}")
+                st.session_state["sidebar_chat_history"].append({"role": "assistant", "content": f"Lỗi hệ thống: {error_msg}"})
+        
         st.rerun()
+else:
+    st.sidebar.warning("🔑 Vui lòng cấu hình KEY_CHATBOT_SIDEBAR trong mục Secrets để kích hoạt trợ lý ảo!")
