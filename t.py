@@ -152,3 +152,59 @@ if "ai_data" in st.session_state:
                     
                     with st.expand_visible if hasattr(st, "expand_visible") else st.expander("💡 Xem giải thích chi tiết từ Giáo sư"):
                         st.write(item.get("explain"))
+
+
+
+
+# --- ĐOẠN CODE CHATBOT ĐẶT SÁT LỀ TRÁI NGOÀI CÙNG ---
+st.divider()
+st.markdown("### 💬 4. HUST Assistant - Trợ lý ảo Bách Khoa")
+st.caption("Bạn có thể hỏi HUST Assistant bất kỳ thông tin gì về trường học, tài liệu hoặc kinh nghiệm học tập tại HUST.")
+
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = [
+        {"role": "assistant", "content": "Xin chào! Tôi là HUST Assistant. Tôi có thể giúp bạn giải đáp thông tin về trường, kinh nghiệm học tập, tài liệu môn học hoặc đề thi tại Bách Khoa. Bạn cần hỗ trợ gì nào?"}
+    ]
+
+chat_container = st.container()
+with chat_container:
+    for message in st.session_state["chat_history"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+user_query = st.chat_input("Nhập câu hỏi của bạn tại đây...")
+
+if user_query:
+    with chat_container:
+        with st.chat_message("user"):
+            st.markdown(user_query)
+    
+    st.session_state["chat_history"].append({"role": "user", "content": user_query})
+    
+    with chat_container:
+        with st.chat_message("assistant"):
+            with st.spinner("HUST Assistant đang suy nghĩ..."):
+                try:
+                    system_instruction = (
+                        "Bạn là HUST Assistant - trợ lý ảo thông minh, năng động của hệ thống hỗ trợ học tập "
+                        "sinh viên Đại học Bách Khoa Hà Nội. Hãy trả lời các câu hỏi của sinh viên một cách ngắn gọn, "
+                        "thẳng thắn, chính xác, mang phong cách kỹ thuật và hữu ích bằng tiếng Việt."
+                    )
+                    
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=user_query,
+                        config={
+                            "system_instruction": system_instruction
+                        }
+                    )
+                    
+                    ai_reply = response.text if response.text else "Xin lỗi, tôi chưa hiểu ý bạn."
+                    st.markdown(ai_reply)
+                    st.session_state["chat_history"].append({"role": "assistant", "content": ai_reply})
+                    
+                except Exception as e:
+                    if "429" in str(e):
+                        st.error("⏳ Hệ thống đang quá tải. Bạn đợi khoảng 1 phút rồi nhắn lại nhé!")
+                    else:
+                        st.error(f"Có lỗi kết nối xảy ra: {e}")
